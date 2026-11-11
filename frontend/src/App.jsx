@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
+import TestingPage from './pages/TestingPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { isAuthenticated } from './services/api';
 
@@ -32,6 +33,9 @@ export default function App() {
             </PublicOnlyRoute>
           }
         />
+
+        {/* Testing Page Route */}
+        <Route path="/testing" element={<TestingPage />} />
 
         {/* Protected Home Route */}
         <Route
