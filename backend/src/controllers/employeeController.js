@@ -8,61 +8,22 @@ export const seedInitialEmployees = async () => {
     const count = await Employee.countDocuments();
     if (count === 0) {
       const sampleEmployees = [
-        {
-          employeeId: 'EMP001',
-          name: 'Sarah Connor',
-          email: 'sarah.connor@company.com',
-          password: 'password123',
-          phone: '+1 (555) 234-5678',
-          department: 'Engineering',
-          designation: 'Lead Cloud Architect',
-          salary: 135000,
-          status: 'Active',
-          dateOfJoining: new Date('2023-01-15'),
-        },
-        {
-          employeeId: 'EMP002',
-          name: 'James Wright',
-          email: 'james.wright@company.com',
-          password: 'password123',
-          phone: '+1 (555) 345-6789',
-          department: 'Human Resources',
-          designation: 'HR Business Partner',
-          salary: 92000,
-          status: 'Active',
-          dateOfJoining: new Date('2022-06-01'),
-        },
-        {
-          employeeId: 'EMP003',
-          name: 'Emily Davis',
-          email: 'emily.davis@company.com',
-          password: 'password123',
-          phone: '+1 (555) 456-7890',
-          department: 'Design',
-          designation: 'Senior Product Designer',
-          salary: 105000,
-          status: 'Active',
-          attendanceStatus: 'On Leave',
-          dateOfJoining: new Date('2023-08-20'),
-        },
-        {
-          employeeId: 'EMP004',
-          name: 'Alex Rivera',
-          email: 'alex.rivera@company.com',
-          password: 'password123',
-          phone: '+1 (555) 567-8901',
-          department: 'Marketing',
-          designation: 'Growth Marketing Manager',
-          salary: 88000,
-          status: 'Active',
-          dateOfJoining: new Date('2024-02-10'),
-        },
+       
       ];
 
+      let seededCount = 0;
       for (const emp of sampleEmployees) {
-        await Employee.create(emp);
+        const alreadyExists = await Employee.exists({
+          $or: [{ employeeId: emp.employeeId }, { email: emp.email.toLowerCase().trim() }],
+        });
+        if (!alreadyExists) {
+          await Employee.create(emp);
+          seededCount += 1;
+        }
       }
-      console.log('🌱 Seeded 4 initial sample employees into MongoDB');
+      if (seededCount > 0) {
+        console.log(`🌱 Seeded ${seededCount} initial sample employees into MongoDB`);
+      }
     }
 
     // Ensure any previously seeded or edited employees conform to Active / Inactive status
@@ -100,7 +61,7 @@ export const getEmployees = async (req, res) => {
       ];
     }
 
-    const employees = await Employee.find(query).select('-password').sort({ createdAt: -1 });
+    const employees = await Employee.find(query).select('-password').sort({ createdAt: -1, _id: -1 });
 
     res.json({
       success: true,
@@ -140,6 +101,35 @@ export const getEmployeeById = async (req, res) => {
 };
 
 /**
+ * Generate the next unique employeeId (e.g. EMP001, EMP002, ...).
+ * Finds the highest existing numeric suffix so deleted records never cause duplicate IDs.
+ */
+const generateNextEmployeeId = async () => {
+  const existingEmployees = await Employee.find({}, { employeeId: 1 }).lean();
+  let maxNumber = 0;
+
+  for (const emp of existingEmployees) {
+    if (typeof emp.employeeId !== 'string') continue;
+    const match = emp.employeeId.match(/^EMP(\d+)$/i);
+    if (!match) continue;
+    const parsed = parseInt(match[1], 10);
+    if (parsed > maxNumber) {
+      maxNumber = parsed;
+    }
+  }
+
+  let nextNumber = maxNumber + 1;
+  let candidateId = `EMP${String(nextNumber).padStart(3, '0')}`;
+
+  while (await Employee.exists({ employeeId: candidateId })) {
+    nextNumber += 1;
+    candidateId = `EMP${String(nextNumber).padStart(3, '0')}`;
+  }
+
+  return candidateId;
+};
+
+/**
  * @desc    Create new employee (Admin only)
  * @route   POST /api/employees
  */
@@ -171,11 +161,18 @@ export const createEmployee = async (req, res) => {
       });
     }
 
-    // Auto-generate employeeId if not provided (EMP001, EMP002, ...)
-    const totalCount = await Employee.countDocuments();
-    const employeeId = `EMP${String(totalCount + 1).padStart(3, '0')}`;
+    // Use provided employeeId (if unique) or safely generate next sequential EMPxxx ID
+    const requestedId = typeof req.body.employeeId === 'string' ? req.body.employeeId.trim().toUpperCase() : '';
+    if (requestedId && (await Employee.exists({ employeeId: requestedId }))) {
+      return res.status(400).json({
+        success: false,
+        message: `Employee ID "${requestedId}" already exists`,
+      });
+    }
 
-    const newEmployee = await Employee.create({
+    const employeeId = requestedId || (await generateNextEmployeeId());
+
+    const payload = {
       employeeId,
       name: name.trim(),
       email: cleanEmail,
@@ -185,7 +182,20 @@ export const createEmployee = async (req, res) => {
       phone: phone ? phone.trim() : '',
       salary: salary ? Number(salary) : 0,
       status: status || 'Active',
-    });
+    };
+
+    let newEmployee;
+    try {
+      newEmployee = await Employee.create(payload);
+    } catch (createErr) {
+      // Retry once with a fresh ID if an auto-generated employeeId hit a concurrent write collision
+      if (!requestedId && createErr?.code === 11000 && createErr?.keyPattern?.employeeId) {
+        payload.employeeId = await generateNextEmployeeId();
+        newEmployee = await Employee.create(payload);
+      } else {
+        throw createErr;
+      }
+    }
 
     // Return without password
     const safeData = newEmployee.toObject();
