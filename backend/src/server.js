@@ -57,7 +57,15 @@ connectDB().then(async () => {
 app.use(cors());
 app.use(express.json());
 
-// Basic API Status Endpoint
+// Health Check Endpoints
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    service: 'HRMS Backend API',
+    adminEmail: process.env.ADMIN_EMAIL || 'admin@hrms.com',
+  });
+});
+
 app.get('/api', (req, res) => {
   res.json({
     status: 'online',
