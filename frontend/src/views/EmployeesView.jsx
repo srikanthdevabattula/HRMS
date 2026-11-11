@@ -32,31 +32,6 @@ const DEPARTMENTS = [
 ];
 
 /**
- * Extract trailing numeric suffix from employeeId (e.g. "EMP004" -> 4)
- */
-const getEmployeeIdNumber = (emp) => {
-  const match = typeof emp?.employeeId === 'string' ? emp.employeeId.match(/(\d+)$/) : null;
-  return match ? parseInt(match[1], 10) : -1;
-};
-
-/**
- * Sort employees in descending order (newest created first, then highest employeeId, then _id)
- */
-const sortEmployeesDescending = (list = []) => {
-  return [...list].sort((a, b) => {
-    const timeA = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const timeB = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-    if (timeB !== timeA) return timeB - timeA;
-
-    const idNumA = getEmployeeIdNumber(a);
-    const idNumB = getEmployeeIdNumber(b);
-    if (idNumB !== idNumA) return idNumB - idNumA;
-
-    return String(b?._id || '').localeCompare(String(a?._id || ''));
-  });
-};
-
-/**
  * Employees Management View
  * Allows Admin to view, search, filter, add, edit, and delete employees
  * Uses custom UI confirmation modal instead of native browser popups
@@ -84,7 +59,7 @@ export default function EmployeesView() {
     setLoading(true);
     try {
       const data = await fetchEmployees({ search, department });
-      setEmployees(sortEmployeesDescending(data));
+      setEmployees([...data].sort((a, b) => (b.salary) - (a.salary)));
     } catch (err) {
       console.warn('Failed to fetch from backend:', err.message);
     } finally {
